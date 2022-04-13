@@ -1586,6 +1586,7 @@ func TestSessionTracker(t *testing.T) {
 	err = se.Close()
 	require.NoError(t, err)
 
+	// Wait for linger to block on clock, then advance.
 	f.clock.BlockUntil(3)
 	f.clock.Advance(defaults.SessionIdlePeriod)
 
