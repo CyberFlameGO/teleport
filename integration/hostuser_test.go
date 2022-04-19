@@ -17,6 +17,7 @@ limitations under the License.
 package integration
 
 import (
+	"os"
 	"os/exec"
 	"os/user"
 	"testing"
@@ -57,7 +58,7 @@ func TestRootHostUserBackend(t *testing.T) {
 		require.True(t, trace.IsAlreadyExists(err))
 	})
 
-	t.Run("Test CreateUser", func(t *testing.T) {
+	t.Run("Test CreateUser and group", func(t *testing.T) {
 		err := backend.CreateUser(testuser, []string{testgroup})
 		require.NoError(t, err)
 
@@ -100,6 +101,15 @@ func TestRootHostUserBackend(t *testing.T) {
 		require.NoError(t, err)
 		require.Subset(t, users, append(checkUsers, "root"))
 	})
+
+	t.Run("Test sudoers", func(t *testing.T) {
+		validSudoersEntry := []byte("root ALL=(ALL) ALL")
+		err := backend.TestSudoersFile(validSudoersEntry)
+		require.NoError(t, err)
+		invalidSudoersEntry := []byte("yipee i broke sudo!!!!")
+		err = backend.TestSudoersFile(invalidSudoersEntry)
+		require.EqualError(t, err, "visudo: invalid sudoers file")
+	})
 }
 
 func requireUserInGroups(t *testing.T, u *user.User, requiredGroups []string) {
@@ -132,12 +142,12 @@ func cleanupUsersAndGroups(users []string, groups []string) func() {
 func TestRootHostUsers(t *testing.T) {
 	requireRoot(t)
 
-	t.Run("test create temporary user and close", func(t *testing.T) {
-		users, err := srv.NewHostUsers()
-		require.NoError(t, err)
+	users, err := srv.NewHostUsers()
+	require.NoError(t, err)
 
+	t.Run("test create temporary user and close", func(t *testing.T) {
 		testGroups := []string{"group1", "group2"}
-		closer, err := users.CreateUser(testuser, testGroups)
+		closer, err := users.CreateUser(testuser, testGroups, nil)
 		require.NoError(t, err)
 
 		testGroups = append(testGroups, types.TeleportServiceGroup)
@@ -152,13 +162,29 @@ func TestRootHostUsers(t *testing.T) {
 		require.Equal(t, err, user.UnknownUserError(testuser))
 	})
 
-	t.Run("test delete all users in teleport service group", func(t *testing.T) {
-		users, err := srv.NewHostUsers()
+	t.Run("test create sudoers enabled users", func(t *testing.T) {
+		closer, err := users.CreateUser(testuser, nil, []string{"root ALL=(ALL) ALL"})
+		require.NoError(t, err)
+		_, err = os.Stat("/etc/sudoers.d/teleport-testuser")
 		require.NoError(t, err)
 
+		// delete the user and ensure the sudoers file got deleted
+		require.NoError(t, closer.Close())
+		_, err = os.Stat("/etc/sudoers.d/teleport-testuser")
+		require.True(t, os.IsNotExist(err))
+
+		// ensure invalid sudoers entries dont get written
+		closer, err = users.CreateUser(testuser, nil, []string{"badsudoers entry!!!"})
+		require.Error(t, err)
+		defer closer.Close()
+		_, err = os.Stat("/etc/sudoers.d/teleport-testuser")
+		require.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("test delete all users in teleport service group", func(t *testing.T) {
 		deleteableUsers := []string{"testuser1", "testuser2", "testuser3"}
 		for _, user := range deleteableUsers {
-			_, err := users.CreateUser(user, []string{})
+			_, err := users.CreateUser(user, []string{}, nil)
 			require.NoError(t, err)
 		}
 		_, err = utils.UserAdd("testuser4", []string{})

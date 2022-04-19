@@ -357,6 +357,18 @@ func ApplyTraits(r types.Role, traits map[string][]string) types.Role {
 		}
 		r.SetHostGroups(condition, outHostGroups)
 
+		inHostSudoers := r.GetHostSudoers(condition)
+		var outHostSudoers []string
+		for _, entry := range inHostSudoers {
+			vals, err := ApplyValueTraits(entry, traits)
+			if err != nil && !trace.IsNotFound(err) {
+				log.Warnf("did not apply trait to sudoers entry: %v", err)
+				continue
+			}
+			outHostSudoers = append(outHostSudoers, vals...)
+		}
+		r.SetHostSudoers(condition, outHostSudoers)
+
 		options := r.GetOptions()
 		for i, ext := range options.CertExtensions {
 			vals, err := ApplyValueTraits(ext.Value, traits)
@@ -742,6 +754,9 @@ type AccessChecker interface {
 
 	// HostGroups returns all host groups matching a server.
 	HostGroups(s types.Server) []string
+
+	// HostSudoers returns all host sudoer entries matching a server.
+	HostSudoers(s types.Server) []string
 }
 
 // FromSpec returns new RoleSet created from spec
@@ -2134,6 +2149,21 @@ func (set RoleSet) HostGroups(s types.Server) []string {
 			continue
 		}
 		groups = append(groups, role.GetHostGroups(types.Allow)...)
+	}
+	return groups
+}
+
+func (set RoleSet) HostSudoers(s types.Server) []string {
+	groups := []string{}
+	for _, role := range set {
+		result, _, err := MatchLabels(role.GetNodeLabels(types.Allow), s.GetAllLabels())
+		if err != nil {
+			return nil
+		}
+		if !result {
+			continue
+		}
+		groups = append(groups, role.GetHostSudoers(types.Allow)...)
 	}
 	return groups
 }

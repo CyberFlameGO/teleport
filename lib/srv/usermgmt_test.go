@@ -17,8 +17,11 @@ limitations under the License.
 package srv
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"os/user"
+	"path/filepath"
 	"testing"
 
 	"github.com/gravitational/teleport/api/types"
@@ -27,14 +30,19 @@ import (
 )
 
 type testHostUserBackend struct {
-	users  map[string][]string
+	// users: user -> []groups
+	users map[string][]string
+	// groups: group -> groupid
 	groups map[string]string
+	// sudoers: user -> entries
+	sudoers map[string][]byte
 }
 
 func newTestUserMgmt() *testHostUserBackend {
 	return &testHostUserBackend{
-		users:  map[string][]string{},
-		groups: map[string]string{},
+		users:   map[string][]string{},
+		groups:  map[string]string{},
+		sudoers: map[string][]byte{},
 	}
 }
 
@@ -93,14 +101,35 @@ func (tm *testHostUserBackend) DeleteUser(user string) error {
 	return nil
 }
 
+// RemoveSudoersFile implements HostUsersBackend
+func (tm *testHostUserBackend) RemoveSudoersFile(user string) error {
+	delete(tm.sudoers, user)
+	return nil
+}
+
+// TestSudoersFile implements HostUsersBackend
+func (*testHostUserBackend) TestSudoersFile(contents []byte) error {
+	if string(contents) == "valid" {
+		return nil
+	}
+	return errors.New("invalid")
+}
+
+// WriteSudoersFile implements HostUsersBackend
+func (tm *testHostUserBackend) WriteSudoersFile(user string, entries []byte) error {
+	tm.sudoers[user] = entries
+	return nil
+}
+
 var _ HostUsersBackend = &testHostUserBackend{}
 
 func TestUserMgmt_CreateTemporaryUser(t *testing.T) {
+	t.Parallel()
 	backend := newTestUserMgmt()
 	users := HostUserManagment{backend: backend}
 
 	// create a user with some groups
-	closer, err := users.CreateUser("bob", []string{"hello", "sudo"})
+	closer, err := users.CreateUser("bob", []string{"hello", "sudo"}, []string{})
 	require.NoError(t, err)
 	require.NotNil(t, closer, "user closer was nil")
 
@@ -110,7 +139,7 @@ func TestUserMgmt_CreateTemporaryUser(t *testing.T) {
 	}, backend.users["bob"])
 
 	// try creat the same user again
-	secondCloser, err := users.CreateUser("bob", []string{"hello", "sudo"})
+	secondCloser, err := users.CreateUser("bob", []string{"hello", "sudo"}, []string{})
 	require.True(t, trace.IsAlreadyExists(err))
 	require.NotNil(t, secondCloser)
 
@@ -122,7 +151,7 @@ func TestUserMgmt_CreateTemporaryUser(t *testing.T) {
 	backend.CreateUser("simon", []string{})
 
 	// try to create a temporary user for simon
-	closer, err = users.CreateUser("simon", []string{"hello", "sudo"})
+	closer, err = users.CreateUser("simon", []string{"hello", "sudo"}, []string{})
 	require.True(t, trace.IsAlreadyExists(err))
 	require.NotNil(t, closer)
 
@@ -132,7 +161,26 @@ func TestUserMgmt_CreateTemporaryUser(t *testing.T) {
 	require.Contains(t, backend.users, "simon")
 }
 
+func TestUserMgmtSudoers_CreateTemporaryUser(t *testing.T) {
+	t.Parallel()
+	backend := newTestUserMgmt()
+	users := HostUserManagment{backend: backend}
+
+	closer, err := users.CreateUser("bob", []string{"hello", "sudo"}, []string{"valid"})
+	require.NoError(t, err)
+	require.NotNil(t, closer)
+
+	require.Equal(t, map[string][]byte{"bob": []byte("valid")}, backend.sudoers)
+
+	require.NoError(t, closer.Close())
+	require.Empty(t, backend.sudoers)
+
+	_, err = users.CreateUser("bob", []string{"hello", "sudo"}, []string{"invalid "})
+	require.Error(t, err)
+}
+
 func TestUserMgmt_DeleteAllTeleportSystemUsers(t *testing.T) {
+	t.Parallel()
 	type userAndGroups struct {
 		user   string
 		groups []string
@@ -162,4 +210,17 @@ func TestUserMgmt_DeleteAllTeleportSystemUsers(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ElementsMatch(t, remainingUsers, resultingUsers)
+}
+
+func TestUserMgmt_WriteSudoerFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	users := UnixHostUsersBackend{sudoersPath: dir}
+	expected := []byte("testoutput")
+	require.NoError(t, users.WriteSudoersFile("testuser", expected))
+	filepath := filepath.Join(dir, "teleport-testuser")
+	res, err := os.ReadFile(filepath)
+
+	require.NoError(t, err)
+	require.Equal(t, expected, res)
 }

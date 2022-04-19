@@ -17,6 +17,7 @@ limitations under the License.
 package utils
 
 import (
+	"bytes"
 	"os/exec"
 	"strings"
 
@@ -86,6 +87,20 @@ func UserDel(username string) (exitCode int, err error) {
 	}
 	// userdel --remove (remove home) username
 	cmd := exec.Command(userdelBin, "--remove", username)
+	err = cmd.Run()
+	return cmd.ProcessState.ExitCode(), trace.Wrap(err)
+}
+
+// TestSudoersFile tests a suders file using `visudo`. The contents
+// are written to the process via stdin pipe.
+func TestSudoersFile(contents []byte) (int, error) {
+	visudoBin, err := exec.LookPath("visudo")
+	if err != nil {
+		return -1, trace.Wrap(err, "cant find usermod binary")
+	}
+	cmd := exec.Command(visudoBin, "--check", "--file", "-")
+	cmd.Stdin = bytes.NewBuffer(contents)
+
 	err = cmd.Run()
 	return cmd.ProcessState.ExitCode(), trace.Wrap(err)
 }

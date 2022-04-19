@@ -20,10 +20,14 @@ limitations under the License.
 package srv
 
 import (
+	"fmt"
+	"os"
 	"os/user"
+	"path/filepath"
 
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 )
 
 /*
@@ -32,9 +36,11 @@ import (
 */
 import "C"
 
-var _ HostUsersBackend = &UnixHostUsersBackend{}
+type UnixHostUsersBackend struct {
+	sudoersPath string
+}
 
-type UnixHostUsersBackend struct{}
+var _ HostUsersBackend = &UnixHostUsersBackend{}
 
 // Lookup implements host user information lookup
 func (*UnixHostUsersBackend) Lookup(username string) (*user.User, error) {
@@ -92,4 +98,32 @@ func (*UnixHostUsersBackend) DeleteUser(name string) error {
 		return trace.Wrap(ErrUserLoggedIn)
 	}
 	return trace.Wrap(err)
+}
+
+func (*UnixHostUsersBackend) TestSudoersFile(contents []byte) error {
+	code, err := utils.TestSudoersFile(contents)
+	if err != nil {
+		if code != 0 {
+			return trace.Errorf("visudo: invalid sudoers file")
+		}
+		return trace.Wrap(err)
+	}
+	return nil
+}
+
+func (u *UnixHostUsersBackend) WriteSudoersFile(username string, contents []byte) error {
+	sudoersFilePath := filepath.Join(u.sudoersPath, fmt.Sprintf("%s-%s", "teleport", username))
+	err := os.WriteFile(sudoersFilePath, contents, 0440)
+	return trace.Wrap(err)
+}
+
+func (u *UnixHostUsersBackend) RemoveSudoersFile(username string) error {
+	sudoersFilePath := filepath.Join(u.sudoersPath, fmt.Sprintf("%s-%s", "teleport", username))
+	if _, err := os.Stat(sudoersFilePath); os.IsNotExist(err) {
+		log.Debugf("User %q, did not have sudoers file as it did not exist at path %q",
+			username,
+			sudoersFilePath)
+		return nil
+	}
+	return trace.Wrap(os.Remove(sudoersFilePath))
 }
