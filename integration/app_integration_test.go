@@ -29,7 +29,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -1076,7 +1075,6 @@ func setupWithOptions(t *testing.T, opts appTestOptions) *pack {
 	rcConf.Console = nil
 	rcConf.Log = log
 	rcConf.DataDir = t.TempDir()
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(rcConf.DataDir)) })
 	rcConf.Auth.Enabled = true
 	rcConf.Auth.Preference.SetSecondFactor("off")
 	rcConf.Proxy.Enabled = true
@@ -1092,7 +1090,6 @@ func setupWithOptions(t *testing.T, opts appTestOptions) *pack {
 	lcConf.Console = nil
 	lcConf.Log = log
 	lcConf.DataDir = t.TempDir()
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(lcConf.DataDir)) })
 	lcConf.Auth.Enabled = true
 	lcConf.Auth.Preference.SetSecondFactor("off")
 	lcConf.Proxy.Enabled = true
@@ -1526,7 +1523,6 @@ func (p *pack) startRootAppServers(t *testing.T, count int, extraApps []service.
 		raConf.Console = nil
 		raConf.Log = log
 		raConf.DataDir = t.TempDir()
-		t.Cleanup(func() { require.NoError(t, os.RemoveAll(raConf.DataDir)) })
 		raConf.Token = "static-token-value"
 		raConf.AuthServers = []utils.NetAddr{
 			{
@@ -1576,9 +1572,13 @@ func (p *pack) startRootAppServers(t *testing.T, count int, extraApps []service.
 
 	servers, err := p.rootCluster.StartApps(configs)
 	require.NoError(t, err)
+	require.Equal(t, len(configs), len(servers))
 
 	for _, appServer := range servers {
-		t.Cleanup(func() { require.NoError(t, appServer.Close()) })
+		srv := appServer
+		t.Cleanup(func() {
+			require.NoError(t, srv.Close())
+		})
 	}
 
 	return servers
@@ -1593,7 +1593,6 @@ func (p *pack) startLeafAppServers(t *testing.T, count int, extraApps []service.
 		laConf.Console = nil
 		laConf.Log = log
 		laConf.DataDir = t.TempDir()
-		t.Cleanup(func() { require.NoError(t, os.RemoveAll(laConf.DataDir)) })
 		laConf.Token = "static-token-value"
 		laConf.AuthServers = []utils.NetAddr{
 			{
@@ -1628,9 +1627,13 @@ func (p *pack) startLeafAppServers(t *testing.T, count int, extraApps []service.
 
 	servers, err := p.leafCluster.StartApps(configs)
 	require.NoError(t, err)
+	require.Equal(t, len(configs), len(servers))
 
 	for _, appServer := range servers {
-		t.Cleanup(func() { require.NoError(t, appServer.Close()) })
+		srv := appServer
+		t.Cleanup(func() {
+			require.NoError(t, srv.Close())
+		})
 	}
 
 	return servers
