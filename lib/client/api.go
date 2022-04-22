@@ -1968,7 +1968,7 @@ func (tc *TeleportClient) ListAppServersWithFilters(ctx context.Context, customF
 	defer proxyClient.Close()
 
 	filter := customFilter
-	if customFilter == nil {
+	if filter == nil {
 		filter = &proto.ListResourcesRequest{
 			Namespace:           tc.Namespace,
 			Labels:              tc.Labels,
@@ -2027,7 +2027,7 @@ func (tc *TeleportClient) ListDatabaseServersWithFilters(ctx context.Context, cu
 	defer proxyClient.Close()
 
 	filter := customFilter
-	if customFilter == nil {
+	if filter == nil {
 		filter = &proto.ListResourcesRequest{
 			Namespace:           tc.Namespace,
 			Labels:              tc.Labels,
@@ -2706,7 +2706,7 @@ func (tc *TeleportClient) localLogin(ctx context.Context, secondFactor constants
 
 // directLogin asks for a password + HOTP token, makes a request to CA via proxy
 func (tc *TeleportClient) directLogin(ctx context.Context, secondFactorType constants.SecondFactorType, pub []byte) (*auth.SSHLoginResponse, error) {
-	password, err := tc.AskPassword()
+	password, err := tc.AskPassword(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -2714,7 +2714,7 @@ func (tc *TeleportClient) directLogin(ctx context.Context, secondFactorType cons
 	// Only ask for a second factor if it's enabled.
 	var otpToken string
 	if secondFactorType == constants.SecondFactorOTP {
-		otpToken, err = tc.AskOTP()
+		otpToken, err = tc.AskOTP(ctx)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -2742,7 +2742,7 @@ func (tc *TeleportClient) directLogin(ctx context.Context, secondFactorType cons
 
 // mfaLocalLogin asks for a password and performs the challenge-response authentication
 func (tc *TeleportClient) mfaLocalLogin(ctx context.Context, pub []byte) (*auth.SSHLoginResponse, error) {
-	password, err := tc.AskPassword()
+	password, err := tc.AskPassword(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -3241,15 +3241,14 @@ func Username() (string, error) {
 }
 
 // AskOTP prompts the user to enter the OTP token.
-func (tc *TeleportClient) AskOTP() (token string, err error) {
-	return prompt.Password(context.Background(), tc.Stderr, prompt.Stdin(), "Enter your OTP token")
+func (tc *TeleportClient) AskOTP(ctx context.Context) (token string, err error) {
+	return prompt.Password(ctx, tc.Stderr, prompt.Stdin(), "Enter your OTP token")
 }
 
 // AskPassword prompts the user to enter the password
-func (tc *TeleportClient) AskPassword() (pwd string, err error) {
+func (tc *TeleportClient) AskPassword(ctx context.Context) (pwd string, err error) {
 	return prompt.Password(
-		context.Background(), tc.Stderr, prompt.Stdin(),
-		fmt.Sprintf("Enter password for Teleport user %v", tc.Config.Username))
+		ctx, tc.Stderr, prompt.Stdin(), fmt.Sprintf("Enter password for Teleport user %v", tc.Config.Username))
 }
 
 // DELETE IN: 4.1.0
@@ -3324,7 +3323,7 @@ func (tc *TeleportClient) loadTLSConfig() (*tls.Config, error) {
 // ParseLabelSpec parses a string like 'name=value,"long name"="quoted value"` into a map like
 // { "name" -> "value", "long name" -> "quoted value" }
 func ParseLabelSpec(spec string) (map[string]string, error) {
-	tokens := []string{}
+	var tokens []string
 	openQuotes := false
 	var tokenStart, assignCount int
 	specLen := len(spec)
@@ -3371,11 +3370,11 @@ func ParseLabelSpec(spec string) (map[string]string, error) {
 // allowing a custom delimiter. Defaults to comma delimiter if not defined.
 func ParseSearchKeywords(spec string, customDelimiter rune) []string {
 	delimiter := customDelimiter
-	if customDelimiter == 0 {
+	if delimiter == 0 {
 		delimiter = rune(',')
 	}
 
-	tokens := []string{}
+	var tokens []string
 	openQuotes := false
 	var tokenStart int
 	specLen := len(spec)

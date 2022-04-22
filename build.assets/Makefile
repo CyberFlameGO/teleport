@@ -317,6 +317,14 @@ enter: buildbox
 		-e HOME=$(SRCDIR)/build.assets -w $(SRCDIR) $(BUILDBOX) /bin/bash
 
 #
+# Starts a root shell inside the build container
+#
+.PHONY:enter-root
+enter-root: buildbox
+	docker run $(DOCKERFLAGS) -ti \
+		-e HOME=$(SRCDIR)/build.assets -w $(SRCDIR) $(BUILDBOX) /bin/bash
+
+#
 # Starts shell inside the centos7 container
 #
 .PHONY:enter/centos7
@@ -415,7 +423,7 @@ docsbox:
 .PHONY:test-docs
 test-docs: docsbox
 	docker run --platform=linux/amd64 -i $(NOROOT) -v $$(pwd)/..:/src/content $(DOCSBOX) \
-		/bin/sh -c "yarn markdown-lint"
+		/bin/sh -c "yarn markdown-lint-external-links"
 
 #
 # Print the Go version used to build Teleport.
